@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistem Informasi Geografis Bencana Terkini</title>
+
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+    <!-- Leaflet Heatmap Plugin -->
+    <script src="https://unpkg.com/leaflet.heat/dist/leaflet-heat.js"></script>
+
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+    <style>
+        #map {
+            height: calc(100vh - 64px);
+            width: 100%;
+            z-index: 1;
+        }
+        @media (max-width: 768px) {
+            #map {
+                height: calc(100vh - 120px);
+            }
+        }
+        .pulse-marker {
+            box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7); }
+            70% { box-shadow: 0 0 0 15px rgba(239, 68, 68, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+        }
+    </style>
+</head>
+<body class="bg-gray-100 font-sans antialiased flex flex-col h-screen overflow-hidden">
+
+    <!-- Header Navigation -->
+    <header class="bg-red-700 text-white h-16 flex items-center justify-between px-4 md:px-6 shadow-md z-10">
+        <div class="flex items-center space-x-3">
+            <i class="fa-solid fa-triangle-exclamation text-2xl text-yellow-300"></i>
+            <div>
+                <h1 class="text-lg md:text-xl font-bold leading-tight">SIG Bencana Indonesia</h1>
+                <p class="text-xs text-red-200 hidden md:block">Portal Informasi Spasial Bencana Real-Time</p>
+            </div>
+        </div>
+        <div class="flex items-center space-x-2">
+            <button onclick="toggleModal('modal-lapor')" class="bg-yellow-500 hover:bg-yellow-600 text-gray-900 font-semibold px-3 py-1.5 rounded-lg text-xs md:text-sm flex items-center gap-1 shadow transition">
+                <i class="fa-solid fa-bullhorn"></i> <span class="hidden sm:inline">Laporkan</span>
+            </button>
+            <button onclick="toggleModal('modal-hotline')" class="bg-white text-red-700 hover:bg-red-50 font-semibold px-3 py-1.5 rounded-lg text-xs md:text-sm flex items-center gap-1 shadow transition">
+                <i class="fa-solid fa-phone"></i> <span class="hidden sm:inline">Kontak Darurat</span>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex flex-col md:flex-row relative overflow-hidden">
+
+        <!-- Sidebar / Drawer (Desktop & Mobile) -->
+        <aside class="w-full md:w-80 bg-white border-r border-gray-200 flex flex-col z-10 shadow-lg md:static absolute bottom-0 max-h-[40vh] md:max-h-full transition-all">
+            <!-- Search & Filter Controls -->
+            <div class="p-4 border-b border-gray-100 bg-gray-50 space-y-3">
+                <div class="relative">
+                    <input type="text" id="search-input" onkeyup="filterDisasters()" placeholder="Cari wilayah/bencana..." class="w-full pl-9 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-red-500">
+                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-gray-400 text-sm"></i>
+                </div>
+                <div class="flex gap-2 overflow-x-auto pb-1 text-xs">
+                    <button onclick="filterCategory('all')" class="cat-btn bg-red-600 text-white px-3 py-1.5 rounded-full font-medium whitespace-nowrap">Semua</button>
+                    <button onclick="filterCategory('Gempa')" class="cat-btn bg-gray-200 text-gray-700 px-3 py-1.5 rounded-full font-medium whitespace-nowrap">Gempa</button>
+                    <button onclick="filterCategory('Banjir')" class="cat-btn bg-gray-200 text-gray-700 px-3 py-1.5 rounded-full font-medium whitespace-nowrap">Banjir</button>
+                    <button onclick="filterCategory('Longsor')" class="cat-btn bg-gray-200 text-gray-700 px-3 py-1.5 rounded-full font-medium whitespace-nowrap">Longsor</button>
+                </div>
+            </div>
+
+            <!-- List Feed -->
+            <div class="flex-1 overflow-y-auto p-3 space-y-2" id="disaster-list">
+                <!-- Items render via Javascript -->
+            </div>
+        </aside>
+
+        <!-- Map Canvas -->
+        <main class="flex-1 relative">
+            <div id="map"></div>
+
+            <!-- Floating Layer Controls -->
+            <div class="absolute top-4 right-4 z-[1000] bg-white/95 backdrop-blur-sm p-2 rounded-xl shadow-lg border border-gray-200 flex flex-col gap-2 text-xs font-medium">
+                <button onclick="toggleHeatmap()" id="btn-heatmap" class="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 text-gray-700">
+                    <i class="fa-solid fa-fire text-orange-500"></i> Mode Heatmap
+                </button>
+                <button onclick="locateUser()" class="flex items-center gap-2 px-3 py-1.5 rounded-lg hover:bg-gray-100 text-blue-600">
+                    <i class="fa-solid fa-location-crosshairs"></i> Lokasi Saya
+                </button>
+            </div>
+        </main>
+    </div>
+
+    <!-- Modal Form Lapor Bencana -->
+    <div id="modal-lapor" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl p-6 relative">
+            <button onclick="toggleModal('modal-lapor')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+            <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-bullhorn text-red-600"></i> Laporkan Bencana Baru
+            </h2>
+            <form onsubmit="submitReport(event)" class="space-y-3">
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Jenis Bencana</label>
+                    <select id="lapor-tipe" class="w-full border rounded-lg p-2 text-sm focus:ring-2 focus:ring-red-500">
+                        <option value="Banjir">Banjir</option>
+                        <option value="Gempa Bumi">Gempa Bumi</option>
+                        <option value="Tanah Longsor">Tanah Longsor</option>
+                        <option value="Cuaca Ekstrem">Cuaca Ekstrem</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Lokasi/Wilayah</label>
+                    <input type="text" id="lapor-lokasi" required placeholder="Contoh: Kec. Arjosari, Pacitan" class="w-full border rounded-lg p-2 text-sm">
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Latitude</label>
+                        <input type="number" step="any" id="lapor-lat" required placeholder="-8.206" class="w-full border rounded-lg p-2 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-600 mb-1">Longitude</label>
+                        <input type="number" step="any" id="lapor-lng" required placeholder="111.092" class="w-full border rounded-lg p-2 text-sm">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-semibold text-gray-600 mb-1">Keterangan Singkat</label>
+                    <textarea id="lapor-desc" rows="3" placeholder="Kondisi terkini, kebutuhan darurat, dll." class="w-full border rounded-lg p-2 text-sm"></textarea>
+                </div>
+                <button type="submit" class="w-full bg-red-600 text-white font-semibold py-2 rounded-lg text-sm hover:bg-red-700 transition">Kirim Laporan</button>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal Kontak Darurat -->
+    <div id="modal-hotline" class="hidden fixed inset-0 bg-black/50 backdrop-blur-sm z-[2000] flex items-center justify-center p-4">
+        <div class="bg-white w-full max-w-sm rounded-2xl shadow-2xl p-6 relative">
+            <button onclick="toggleModal('modal-hotline')" class="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
+                <i class="fa-solid fa-xmark text-xl"></i>
+            </button>
+            <h2 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
+                <i class="fa-solid fa-phone-volume text-red-600"></i> Kontak Darurat (Hotline)
+            </h2>
+            <div class="space-y-3">
+                <a href="tel:117" class="flex items-center justify-between p-3 bg-red-50 rounded-xl hover:bg-red-100 transition">
+                    <div>
+                        <p class="font-bold text-red-800 text-sm">BNPB / BPBD</p>
+                        <p class="text-xs text-gray-500">Badan Penanggulangan Bencana</p>
+                    </div>
+                    <span class="bg-red-600 text-white font-mono px-3 py-1 rounded-lg text-xs font-bold">117</span>
+                </a>
+                <a href="tel:115" class="flex items-center justify-between p-3 bg-blue-50 rounded-xl hover:bg-blue-100 transition">
+                    <div>
+                        <p class="font-bold text-blue-800 text-sm">BASARNAS</p>
+                        <p class="text-xs text-gray-500">Pencarian dan Pertolongan</p>
+                    </div>
+                    <span class="bg-blue-600 text-white font-mono px-3 py-1 rounded-lg text-xs font-bold">115</span>
+                </a>
+                <a href="tel:118" class="flex items-center justify-between p-3 bg-green-50 rounded-xl hover:bg-green-100 transition">
+                    <div>
+                        <p class="font-bold text-green-800 text-sm">Ambulans / Kemenkes</p>
+                        <p class="text-xs text-gray-500">Layanan Medis Darurat</p>
+                    </div>
+                    <span class="bg-green-600 text-white font-mono px-3 py-1 rounded-lg text-xs font-bold">118</span>
+                </a>
+                <a href="tel:110" class="flex items-center justify-between p-3 bg-gray-50 rounded-xl hover:bg-gray-100 transition">
+                    <div>
+                        <p class="font-bold text-gray-800 text-sm">Kepolisian RI</p>
+                        <p class="text-xs text-gray-500">Layanan Polisi</p>
+                    </div>
+                    <span class="bg-gray-700 text-white font-mono px-3 py-1 rounded-lg text-xs font-bold">110</span>
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Application Script -->
+    <script>
+        // Data Bencana Awal (Mock Data Spasial Indonesia)
+        let disasterData = [
+            { id: 1, title: "Gempa Bumi M 5.2", category: "Gempa", location: "Selatan Jawa / Pacitan", lat: -8.206, lng: 111.092, time: "10 Menit lalu", status: "Waspada", desc: "Kedalaman 10 km, tidak berpotensi tsunami." },
+            { id: 2, title: "Banjir Luapan Sungai", category: "Banjir", location: "Semarang, Jawa Tengah", lat: -6.966, lng: 110.416, time: "1 Jam lalu", status: "Siaga", desc: "Ketinggian air mencapai 40-70 cm di kawasan pemukiman." },
+            { id: 3, title: "Tanah Longsor", category: "Longsor", location: "Bogor, Jawa Barat", lat: -6.597, lng: 106.799, time: "3 Jam lalu", status: "Waspada", desc: "Menutup akses jalan desa, tim SAR sudah di lokasi." },
+            { id: 4, title: "Erupsi Gunung Gunung Muka", category: "Erupsi", location: "Erupsi Gunung Berapi", lat: -7.540, lng: 110.446, time: "5 Jam lalu", status: "Awas", desc: "Semburan abu vulkanik hingga radius 3 km." }
+        ];
+
+        let map, markersLayer, heatLayer;
+        let isHeatmapActive = false;
+
+        // Inisialisasi Peta
+        function initMap() {
+            map = L.map('map').setView([-2.5489, 118.0149], 5); // Center Indonesia
+
+            // Basemap OpenStreetMap
+            const osm = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                maxZoom: 18,
+                attribution: '© OpenStreetMap'
+            }).addTo(map);
+
+            markersLayer = L.layerGroup().addTo(map);
+            renderMapAndList(disasterData);
+        }
+
+        // Render Marker dan Daftar
+        function renderMapAndList(data) {
+            markersLayer.clearLayers();
+            const listEl = document.getElementById('disaster-list');
+            listEl.innerHTML = '';
+
+            const heatPoints = [];
+
+            data.forEach(item => {
+                // Buat Marker
+                const customIcon = L.divIcon({
+                    className: 'pulse-marker',
+                    html: `<div class="bg-red-600 text-white w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs border-2 border-white shadow-lg"><i class="fa-solid fa-triangle-exclamation"></i></div>`,
+                    iconSize: [28, 28],
+                    iconAnchor: [14, 14]
+                });
+
+                const marker = L.marker([item.lat, item.lng], { icon: customIcon })
+                    .bindPopup(`
+                        <div class="p-1">
+                            <span class="bg-red-100 text-red-700 text-[10px] font-bold px-2 py-0.5 rounded">${item.category}</span>
+                            <h3 class="font-bold text-sm text-gray-800 mt-1">${item.title}</h3>
+                            <p class="text-xs text-gray-500 mb-1"><i class="fa-solid fa-location-dot"></i> ${item.location}</p>
+                            <p class="text-xs text-gray-600">${item.desc}</p>
+                            <span class="text-[10px] text-gray-400 block mt-2">${item.time}</span>
+                        </div>
+                    `);
+                
+                markersLayer.addLayer(marker);
+                heatPoints.push([item.lat, item.lng, 0.8]);
+
+                // Buat Elemen List Sidebar
+                const card = document.createElement('div');
+                card.className = "bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition cursor-pointer border-l-4 border-l-red-500";
+                card.onclick = () => {
+                    map.flyTo([item.lat, item.lng], 10, { duration: 1.5 });
+                    marker.openPopup();
+                };
+                card.innerHTML = `
+                    <div class="flex justify-between items-start mb-1">
+                        <span class="text-[10px] font-bold uppercase tracking-wider text-red-600 bg-red-50 px-2 py-0.5 rounded">${item.category}</span>
+                        <span class="text-[10px] text-gray-400">${item.time}</span>
+                    </div>
+                    <h4 class="font-bold text-sm text-gray-800">${item.title}</h4>
+                    <p class="text-xs text-gray-500 mt-1"><i class="fa-solid fa-location-dot text-red-400"></i> ${item.location}</p>
+                `;
+                listEl.appendChild(card);
+            });
+
+            // Heatmap Setup
+            if (heatLayer) map.removeLayer(heatLayer);
+            heatLayer = L.heatLayer(heatPoints, { radius: 25, blur: 15, maxZoom: 10 });
+        }
+
+        // Toggle Heatmap
+        function toggleHeatmap() {
+            const btn = document.getElementById('btn-heatmap');
+            if (!isHeatmapActive) {
+                map.addLayer(heatLayer);
+                btn.classList.add('bg-red-50', 'text-red-600');
+            } else {
+                map.removeLayer(heatLayer);
+                btn.classList.remove('bg-red-50', 'text-red-600');
+            }
+            isHeatmapActive = !isHeatmapActive;
+        }
+
+        // Filter Kategori
+        function filterCategory(cat) {
+            document.querySelectorAll('.cat-btn').forEach(b => {
+                b.classList.remove('bg-red-600', 'text-white');
+                b.classList.add('bg-gray-200', 'text-gray-700');
+            });
+            event.target.classList.remove('bg-gray-200', 'text-gray-700');
+            event.target.classList.add('bg-red-600', 'text-white');
+
+            if (cat === 'all') {
+                renderMapAndList(disasterData);
+            } else {
+                const filtered = disasterData.filter(d => d.category.toLowerCase().includes(cat.toLowerCase()));
+                renderMapAndList(filtered);
+            }
+        }
+
+        // Filter Pencarian Text
+        function filterDisasters() {
+            const query = document.getElementById('search-input').value.toLowerCase();
+            const filtered = disasterData.filter(d => 
+                d.title.toLowerCase().includes(query) || 
+                d.location.toLowerCase().includes(query)
+            );
+            renderMapAndList(filtered);
+        }
+
+        // Geolocation Pengguna
+        function locateUser() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(pos => {
+                    const lat = pos.coords.latitude;
+                    const lng = pos.coords.longitude;
+                    map.flyTo([lat, lng], 12);
+                    L.circleMarker([lat, lng], { radius: 8, color: '#3B82F6', fillColor: '#3B82F6', fillOpacity: 0.8 }).addTo(map)
+                        .bindPopup("Lokasi Anda Saat Ini").openPopup();
+                }, () => alert("Gagal mengambil lokasi perangkat. Pastikan GPS aktif."));
+            }
+        }
+
+        // Modal Handler
+        function toggleModal(id) {
+            document.getElementById(id).classList.toggle('hidden');
+        }
+
+        // Submit Laporan Bencana Baru
+        function submitReport(e) {
+            e.preventDefault();
+            const newDisaster = {
+                id: Date.now(),
+                title: document.getElementById('lapor-tipe').value + " Baru",
+                category: document.getElementById('lapor-tipe').value,
+                location: document.getElementById('lapor-lokasi').value,
+                lat: parseFloat(document.getElementById('lapor-lat').value),
+                lng: parseFloat(document.getElementById('lapor-lng').value),
+                time: "Baru saja",
+                status: "Laporan Warga",
+                desc: document.getElementById('lapor-desc').value
+            };
+
+            disasterData.unshift(newDisaster);
+            renderMapAndList(disasterData);
+            map.flyTo([newDisaster.lat, newDisaster.lng], 10);
+            toggleModal('modal-lapor');
+            e.target.reset();
+        }
+
+        window.onload = initMap;
+    </script>
+</body>
+</html>
